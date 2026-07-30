@@ -30,6 +30,7 @@
     "i18n:extract": "bun scripts/i18n-extract.ts",
     "openapi:generate": "bun scripts/build-openapi.ts --write",
     "openapi:check": "bun scripts/build-openapi.ts",
+    "assets:logo": "bash scripts/build-logo.sh",
     "derive:check": "bun tooling/derivation/check-markers.ts",
     "derive:pro": "bun tooling/derivation/derive.ts pro",
     "derive:free": "bun tooling/derivation/derive.ts free",

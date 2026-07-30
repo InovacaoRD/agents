@@ -29,6 +29,7 @@ WhatsApp em primeiro lugar. Multimodais, humanizados e self-hosted.
 > | O quê | Onde |
 > |---|---|
 > | Nome de exibição (**temporário**: "RD Agents") | `src/client/contexts/BrandingContext.tsx`, `public/index.html` |
+> | Logo e favicon próprios (wordmark placeholder gerado dos SVGs em `public/assets/src/`) | `public/assets/logo{,-light}.png`, `public/favicon-{dark,light}.png` |
 > | Bloco de suporte escondido (sem e-mail próprio ainda) | `src/client/lib/navigation.tsx` |
 > | Link do site removido; GitHub aponta para este fork | `src/client/lib/navigation.tsx` |
 > | Hub da fazer.ai desligado (sem banner nem check de versão) | `.env.example` → `FAZER_AI_HUB_URL=` |
@@ -36,8 +37,8 @@ WhatsApp em primeiro lugar. Multimodais, humanizados e self-hosted.
 >
 > **Pendências antes de qualquer uso externo:**
 >
-> - [ ] Substituir os assets, que ainda são a marca da fazer.ai: `public/assets/logo.png`, `public/assets/logo-light.png`, `public/favicon-dark.png`, `public/favicon-light.png`
-> - [ ] Definir o nome definitivo (troca nos 2 arquivos acima)
+> - [ ] Trocar o wordmark placeholder pela arte definitiva. Os PNGs saem dos SVGs em `public/assets/src/` — para regerar: `bun assets:logo`
+> - [ ] Definir o nome definitivo (`BrandingContext.tsx` + `public/index.html`, e o texto dos SVGs)
 > - [ ] Definir e-mail de suporte e reativar `SUPPORT_LINK`
 > - [ ] Publicar a imagem Docker própria e apontar `AGENTS_IMAGE` para ela (o compose usa `ghcr.io/fazer-ai/agents` por padrão)
 >
