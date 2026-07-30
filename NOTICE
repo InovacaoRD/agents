@@ -7,3 +7,13 @@ file in this repository).
 This software may include third-party open-source components, each distributed
 under its own license. Refer to the dependency manifests (package.json and the
 lockfile) and any accompanying license files for details.
+
+--------------------------------------------------------------------------------
+
+MODIFICATIONS (Apache License 2.0, section 4(b))
+
+This repository is a modified fork of https://github.com/fazer-ai/agents,
+maintained by InovacaoRD. Changes from upstream are limited to branding and
+deployment configuration: display name, page title, footer/support links,
+and the disabled central hub. "fazer.ai" is a trademark of FAZER.AI LTDA and
+is not used as the identity of this fork (Apache License 2.0, section 6).
