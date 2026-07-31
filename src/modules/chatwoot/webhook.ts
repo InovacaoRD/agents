@@ -17,6 +17,10 @@ import { ingestMessageIntoThread } from "@/graph/ingest";
 import { runAgentTurn } from "@/graph/runtime";
 import { AppError, UnauthorizedError } from "@/lib/errors";
 import { asSuperAdminOn, runScopedOn, type TenantContext } from "@/lib/tenancy";
+import {
+  contactAccessAllowed,
+  readAccessControlConfig,
+} from "@/modules/access-control/settings";
 import { shouldRunReset } from "@/modules/agents/test-mode";
 import {
   isOpenAt,
@@ -134,6 +138,30 @@ async function inboxAgentRuntime(
       mode: agent.mode,
       settings: agent.settings,
     };
+  });
+}
+
+// Access-control lookup: is this Chatwoot contact authorized for an access-controlled agent?
+// Reads `Contact.supportRole` from OUR RLS-scoped row — a contact cannot claim a role through the
+// webhook payload. A contact we have never mirrored (or one with no role) is refused, so the gate is
+// fail-closed both for unknown people and for a mirror that has not caught up yet.
+async function contactAuthorized(
+  tenantId: bigint,
+  chatwootContactId: number | null,
+  base: PrismaClient,
+): Promise<boolean> {
+  if (chatwootContactId == null) return false;
+  return runScopedOn(base, sysCtx(tenantId), async (db) => {
+    const contact = await db.contact.findUnique({
+      where: {
+        tenantId_chatwootContactId: { tenantId, chatwootContactId },
+      },
+      select: { supportRole: true },
+    });
+    return contactAccessAllowed(
+      { enabled: true, refusalNote: "" },
+      contact?.supportRole ?? null,
+    );
   });
 }
 
@@ -1018,7 +1046,7 @@ export async function processChatwootDelivery(
   }
 
   // Gate, then the agent runtime — all network OUTSIDE the transaction.
-  const act = shouldBotHandle(
+  const attributionOk = shouldBotHandle(
     {
       assigneeType: n.assigneeType,
       status: n.status,
@@ -1026,7 +1054,24 @@ export async function processChatwootDelivery(
     },
     { ourAgentBotId: params.agentBotId },
   );
+
+  // Access control (opt-in per agent): an internal agent (IT support) answers ONLY contacts an
+  // operator authorized, while a customer-facing one answers anyone. FAIL-CLOSED and evaluated HERE,
+  // before the runtime — an unauthorized contact never reaches the model, so authorization can never
+  // be talked around in a prompt. The role is read from OUR row (RLS-scoped), never from the payload.
+  const accessCfg = readAccessControlConfig(rt?.settings);
+  const accessOk =
+    !accessCfg.enabled ||
+    (await contactAuthorized(params.tenantId, n.contact?.id ?? null, base));
+  const act = attributionOk && accessOk;
   const convLabel = n.conversationId === null ? "?" : String(n.conversationId);
+
+  if (attributionOk && !accessOk) {
+    logger.info(
+      "chatwoot: contact not authorized for agent (conv=%s); staying silent",
+      convLabel,
+    );
+  }
 
   // ── WhatsApp→chat redirect: the WIDGET conversation this agent manages just transitioned TO resolved
   //    (by anyone — the agent's own resolve tool, an operator in our console, or a human resolving
