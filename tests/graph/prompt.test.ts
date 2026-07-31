@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { buildPromptVars, interpolatePromptVars } from "@/graph/prompt";
+import {
+  buildPromptVars,
+  interpolatePromptVars,
+  isKnownPromptVar,
+} from "@/graph/prompt";
 
 describe("interpolatePromptVars — {{ }} syntax", () => {
   const vars = buildPromptVars({
@@ -101,5 +105,26 @@ describe("interpolatePromptVars — wrap (preview highlight)", () => {
     expect(interpolatePromptVars("{{desconhecida}}", vars, opts)).toBe(
       "{{desconhecida}}",
     );
+  });
+});
+
+describe("contactBranch — unidade cadastrada do contato", () => {
+  test("exposta nos aliases pt-BR e no nome canônico", () => {
+    const vars = buildPromptVars({ contactBranch: "RO011" });
+    expect(interpolatePromptVars("{{loja_contato}}", vars)).toBe("RO011");
+    expect(interpolatePromptVars("{{filial_contato}}", vars)).toBe("RO011");
+    expect(interpolatePromptVars("{{contact_branch}}", vars)).toBe("RO011");
+  });
+
+  test("vazia quando não cadastrada — o agente então pergunta", () => {
+    const vars = buildPromptVars({ contactName: "Maria" });
+    expect(interpolatePromptVars("[{{loja_contato}}]", vars)).toBe("[]");
+  });
+
+  test("é reconhecida pelo editor (não marcada como typo)", () => {
+    expect(isKnownPromptVar("loja_contato")).toBe(true);
+    expect(isKnownPromptVar("filial_contato")).toBe(true);
+    expect(isKnownPromptVar("contact_branch")).toBe(true);
+    expect(isKnownPromptVar("loja_do_contato")).toBe(false);
   });
 });
