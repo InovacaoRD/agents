@@ -1,14 +1,22 @@
-// Armazenamento de anexos (S3/R2), por tenant. Serve para dar a um sistema externo — um chamado de
-// TI, por exemplo — acesso a uma imagem que chegou pelo WhatsApp, sem depender do Chatwoot (que fica
-// atrás de autenticação) nem de o destino aceitar upload.
+// Armazenamento de anexos (S3/R2). Serve para dar a um sistema externo — um chamado de TI, por
+// exemplo — acesso a uma imagem que chegou pelo WhatsApp, sem depender do Chatwoot (que fica atrás
+// de autenticação) nem de o destino aceitar upload.
 //
-// Off por padrão: sem bucket configurado, nada é enviado e o comportamento é o de sempre.
+// DUAS camadas, de propósito:
+//   * o TENANT guarda ONDE armazenar (bucket, endpoint, credencial) — infraestrutura, uma vez só;
+//   * o AGENTE decide SE armazena (`agent.settings.storage.enabled`) — porque a finalidade é por
+//     agente. Um agente de suporte precisa anexar o print a um chamado; um agente de atendimento ao
+//     cliente recebe foto de laudo e receita, e não tem o que fazer com o link — guardar seria
+//     retenção de dado sensível sem finalidade.
+//
+// Off por padrão nas duas camadas.
 //
 // O link é SEMPRE assinado e expira. Um print de PDV costuma trazer dado de cliente (nome, itens,
 // medicamento) — publicar isso num bucket aberto seria vazamento. O bucket deve ser privado; a
 // assinatura é o que concede acesso, por tempo limitado.
 
 export interface StorageConfig {
+  // Resultado do AND entre a infraestrutura do tenant e a opção do agente.
   enabled: boolean;
   bucket: string;
   endpoint: string;
@@ -34,10 +42,16 @@ const TTL_MIN_DAYS = 1;
 // o teto é técnico, não uma escolha de produto.
 export const TTL_MAX_DAYS = 7;
 
-export function readStorageConfig(settings: unknown): StorageConfig {
+// `tenantSettings` traz o destino (bucket/endpoint/credencial); `agentSettings`, a opção de usá-lo.
+// Sem o segundo argumento nada é habilitado: um chamador que ainda não sabe de qual agente se trata
+// não deve conseguir ligar o armazenamento por omissão.
+export function readStorageConfig(
+  tenantSettings: unknown,
+  agentSettings?: unknown,
+): StorageConfig {
   const s =
-    settings && typeof settings === "object"
-      ? (settings as Record<string, unknown>).storage
+    tenantSettings && typeof tenantSettings === "object"
+      ? (tenantSettings as Record<string, unknown>).storage
       : undefined;
   if (!s || typeof s !== "object") return { ...STORAGE_DEFAULTS };
   const bag = s as Record<string, unknown>;
@@ -64,5 +78,17 @@ export function readStorageConfig(settings: unknown): StorageConfig {
   // Config pela metade não vale: sem bucket/endpoint/credencial não há como enviar, e seguir como
   // "ligado" só produziria erro a cada anexo.
   if (!cfg.bucket || !cfg.endpoint || !cfg.credentialRef) cfg.enabled = false;
+
+  // O agente é quem tem finalidade para o anexo. Sem opt-in explícito dele, não se armazena —
+  // mesmo com a infraestrutura toda configurada.
+  const a =
+    agentSettings && typeof agentSettings === "object"
+      ? (agentSettings as Record<string, unknown>).storage
+      : undefined;
+  const agentQuer =
+    !!a &&
+    typeof a === "object" &&
+    (a as Record<string, unknown>).enabled === true;
+  cfg.enabled = cfg.enabled && agentQuer;
   return cfg;
 }

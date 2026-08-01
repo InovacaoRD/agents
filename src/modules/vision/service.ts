@@ -73,6 +73,9 @@ export interface ExtractInboundParams {
   attachmentId: number;
   dataUrl: string;
   cfg: VisionConfig;
+  // Settings do agente dono do inbox: decide se o anexo vai para o armazenamento externo. Ausente
+  // ⇒ não armazena (a finalidade é do agente, não do tenant).
+  agentSettings?: unknown;
   base?: PrismaClient;
   deps?: { makeClient?: MakeClient; fetchImpl?: typeof fetch };
   // Optional execution-flow context: when present, the extraction is logged as a `vision` stage
@@ -219,11 +222,20 @@ export async function extractInboundFile(
   // uma falha aqui não pode custar o que já foi extraído. Os bytes já estão em memória (baixados
   // acima), então não há segundo download.
   let attachmentUrl: string | null = null;
-  const storage = readStorageConfig(
-    await runScopedOn(base, sysCtx(params.tenantId), (db) =>
-      db.tenant.findFirst({ select: { settings: true } }),
-    ).then((t) => t?.settings),
-  );
+  // Só consulta o tenant quando o AGENTE pediu armazenamento — evita uma query por anexo para
+  // quem não usa o recurso.
+  const agentQuerStorage =
+    !!params.agentSettings &&
+    typeof params.agentSettings === "object" &&
+    (params.agentSettings as Record<string, unknown>).storage !== undefined;
+  const storage = agentQuerStorage
+    ? readStorageConfig(
+        await runScopedOn(base, sysCtx(params.tenantId), (db) =>
+          db.tenant.findFirst({ select: { settings: true } }),
+        ).then((t) => t?.settings),
+        params.agentSettings,
+      )
+    : { enabled: false as const };
   if (storage.enabled) {
     attachmentUrl = await uploadAndSign({
       tenantId: params.tenantId,

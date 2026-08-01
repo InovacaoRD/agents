@@ -346,6 +346,9 @@ export async function runEagerMedia(
   instanceId: bigint,
   n: NormalizedChatwootEvent,
   base: PrismaClient,
+  // Settings do agente do inbox (quando já resolvidas pelo chamador): decidem se o anexo vai para o
+  // armazenamento externo. Ausentes ⇒ não armazena.
+  agentSettings?: unknown,
 ): Promise<void> {
   if (
     n.conversationId === null ||
@@ -420,6 +423,8 @@ export async function runEagerMedia(
           attachmentId: visual.id,
           dataUrl: visual.dataUrl,
           cfg: visionCfg,
+          // O agente do inbox decide se o anexo vai para o armazenamento externo.
+          agentSettings,
           base,
           flow: flow(),
         });
@@ -1172,7 +1177,13 @@ export async function processChatwootDelivery(
   // on the answer path (below); a disabled/unbound inbox never analyzes (no STT/vision cost). The
   // call is idempotent, so the answer-path call below is a no-op when this already ran. Best-effort.
   if (isNewIncoming && rt?.enabled && rt.mode === "production") {
-    await runEagerMedia(params.tenantId, params.instanceId, n, base);
+    await runEagerMedia(
+      params.tenantId,
+      params.instanceId,
+      n,
+      base,
+      rt.settings,
+    );
   }
 
   // First-class on-reply reset: a new customer message makes any pending inactivity follow-up moot.
@@ -1218,7 +1229,13 @@ export async function processChatwootDelivery(
       // empty audio/image message. For a production agent this already ran before the gate; the call
       // is idempotent, so here it only does real work for a test-mode agent that just passed the gate
       // (activated with /teste). Best-effort — a failure leaves a "please send text" marker.
-      await runEagerMedia(params.tenantId, params.instanceId, n, base);
+      await runEagerMedia(
+        params.tenantId,
+        params.instanceId,
+        n,
+        base,
+        rt?.settings,
+      );
 
       // Debounce path: an incoming message on a debounce-enabled agent re-arms the durable DEBOUNCE
       // job (coalescing window) instead of replying balloon-by-balloon. The fast worker flushes it
