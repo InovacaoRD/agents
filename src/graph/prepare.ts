@@ -318,6 +318,7 @@ export async function loadAgentConfig(
     select: {
       id: true,
       contactInboxId: true,
+      lastAttachmentUrl: true,
       contact: {
         select: {
           id: true,
@@ -326,6 +327,7 @@ export async function loadAgentConfig(
           email: true,
           phone: true,
           voiceReply: true,
+          branch: true,
         },
       },
       inbox: { select: { id: true, chatwootInboxId: true, name: true } },
@@ -397,6 +399,11 @@ export async function loadAgentConfig(
         ["telefone_contato", "contact_phone"],
         conv?.contact?.phone ?? null,
       ),
+      contactBranch: pickPromptVar(
+        ov?.promptVars,
+        ["loja_contato", "filial_contato", "contact_branch"],
+        conv?.contact?.branch ?? null,
+      ),
       inboxName: pickPromptVar(
         ov?.promptVars,
         ["canal", "inbox_name"],
@@ -458,6 +465,9 @@ export async function loadAgentConfig(
       ...(conv?.contact?.name ? { contact_name: conv.contact.name } : {}),
       ...(conv?.contact?.email ? { contact_email: conv.contact.email } : {}),
       ...(conv?.contact?.phone ? { contact_phone: conv.contact.phone } : {}),
+      // Unidade cadastrada do contato: permite que uma ferramenta preencha a loja de um chamado a
+      // partir do cadastro (campo fixo) em vez de confiar no que o modelo entendeu da conversa.
+      ...(conv?.contact?.branch ? { contact_branch: conv.contact.branch } : {}),
       ...(conv?.inbox?.chatwootInboxId != null
         ? { inbox_id: String(conv.inbox.chatwootInboxId) }
         : {}),

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import config from "@/config";
 import {
   fetchAnnouncements,
   fetchLatestVersion,
@@ -26,11 +27,18 @@ function stubFetch(route: (url: string) => Response | Promise<Response>): {
   return { calls: () => calls };
 }
 
+// getUpdates faz short-circuit quando o hub está desligado (config.hub.url vazio), que é o padrão
+// deste fork no .env. Os testes abaixo exercitam o caminho COM hub, então fixam a URL aqui em vez
+// de depender do .env da máquina — senão a suíte passa ou falha conforme o ambiente.
+const realHubUrl = config.hub.url;
+
 beforeEach(() => {
+  config.hub.url = "https://hub.test";
   resetUpdatesCache();
 });
 
 afterEach(() => {
+  config.hub.url = realHubUrl;
   globalThis.fetch = realFetch;
   resetUpdatesCache();
 });

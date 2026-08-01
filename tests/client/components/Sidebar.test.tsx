@@ -11,6 +11,7 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
+import { SUPPORT_LINK } from "@/client/lib/navigation";
 
 const mockUser = { role: "AGENT" as string };
 
@@ -94,11 +95,17 @@ describe("Sidebar", () => {
   });
 
   describe("footer", () => {
-    test("renders support button (opens modal, not a link)", () => {
-      renderSidebar();
-      const btn = screen.getByRole("button", { name: /^support$/i });
-      expect(btn.tagName).toBe("BUTTON");
-    });
+    // Os dois testes de suporte só valem quando SUPPORT_LINK está configurado. Neste fork ele é
+    // null (sem e-mail de suporte próprio ainda), então ficam skipped e voltam sozinhos quando o
+    // link for reativado em src/client/lib/navigation.tsx.
+    test.skipIf(!SUPPORT_LINK)(
+      "renders support button (opens modal, not a link)",
+      () => {
+        renderSidebar();
+        const btn = screen.getByRole("button", { name: /^support$/i });
+        expect(btn.tagName).toBe("BUTTON");
+      },
+    );
 
     test("renders secondary links with target=_blank and rel=noopener", () => {
       renderSidebar();
@@ -108,19 +115,22 @@ describe("Sidebar", () => {
       expect(github.getAttribute("href")).toMatch(/^https:\/\//);
     });
 
-    test("clicking support button opens a dialog with the email", () => {
-      renderSidebar();
-      const btn = screen.getByRole("button", { name: /^support$/i });
-      act(() => {
-        fireEvent.click(btn);
-      });
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-      // The mailto anchor inside the dialog carries the support email.
-      const mailto = screen
-        .getAllByRole("link")
-        .find((a) => a.getAttribute("href")?.startsWith("mailto:"));
-      expect(mailto?.getAttribute("href")).toMatch(/^mailto:.+@.+/);
-    });
+    test.skipIf(!SUPPORT_LINK)(
+      "clicking support button opens a dialog with the email",
+      () => {
+        renderSidebar();
+        const btn = screen.getByRole("button", { name: /^support$/i });
+        act(() => {
+          fireEvent.click(btn);
+        });
+        expect(screen.getByRole("dialog")).toBeInTheDocument();
+        // The mailto anchor inside the dialog carries the support email.
+        const mailto = screen
+          .getAllByRole("link")
+          .find((a) => a.getAttribute("href")?.startsWith("mailto:"));
+        expect(mailto?.getAttribute("href")).toMatch(/^mailto:.+@.+/);
+      },
+    );
   });
 
   describe("mobile drawer", () => {

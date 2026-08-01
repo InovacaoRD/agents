@@ -1,10 +1,8 @@
 import {
   Bot,
   Gauge,
-  Globe,
   KeyRound,
   LibraryBig,
-  LifeBuoy,
   MessagesSquare,
   RadioTower,
   ScrollText,
@@ -147,28 +145,18 @@ export interface SupportContact {
 // locale-specific inbox. Set to null to hide the support block entirely.
 // t('nav.support', 'Support')
 // t('support.email', 'support@fazer.ai')
-export const SUPPORT_LINK: SupportContact | null = {
-  emailKey: "support.email",
-  defaultEmail: "support@fazer.ai",
-  labelKey: "nav.support",
-  defaultLabel: "Support",
-  icon: LifeBuoy,
-};
+// ponytail: bloco de suporte escondido (null) até existir um e-mail de suporte próprio —
+// apontar para o suporte da fazer.ai seria errado para o cliente final deste fork.
+export const SUPPORT_LINK: SupportContact | null = null;
 
-// t('nav.website', 'fazer.ai')
 // t('nav.github', 'GitHub')
-// Always the public open-source repo — even in Pro/Full (whose own repo is private): the user can
-// only open the public one. Used for the footer GitHub link AND the "new version" upgrade link, so
-// both point at fazer-ai/agents regardless of edition (never the hub).
-export const AGENTS_REPO_URL = "https://github.com/fazer-ai/agents";
+// Used for the footer GitHub link AND the "new version" upgrade link. Aponta para este fork
+// (upstream: https://github.com/fazer-ai/agents), que é de onde saem as versões deste deploy.
+export const AGENTS_REPO_URL = "https://github.com/InovacaoRD/agents";
 
+// ponytail: link do site removido enquanto a marca não tem site próprio — o footer fica só
+// com o GitHub. Para reativar, adicione uma entrada com href/labelKey/defaultLabel/icon: Globe.
 export const SECONDARY_LINKS: FooterLink[] = [
-  {
-    href: "https://fazer.ai",
-    labelKey: "nav.website",
-    defaultLabel: "fazer.ai",
-    icon: Globe,
-  },
   {
     href: AGENTS_REPO_URL,
     labelKey: "nav.github",

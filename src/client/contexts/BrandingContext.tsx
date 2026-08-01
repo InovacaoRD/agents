@@ -48,7 +48,9 @@ function writeCache(config: BrandingData): void {
 }
 
 // The white-label display name when none is configured (the product's own brand).
-const DEFAULT_BRAND_NAME = "fazer.ai";
+// ponytail: nome temporário do fork — fonte única do nome da marca (título da aba, rodapé,
+// menu). Trocar aqui e em public/index.html <title> ao definir a marca definitiva.
+const DEFAULT_BRAND_NAME = "RD Agents";
 
 interface BrandingContextValue {
   config: BrandingData | null;

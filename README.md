@@ -21,6 +21,33 @@ WhatsApp em primeiro lugar. Multimodais, humanizados e self-hosted.
 
 ---
 
+> ## ⚠️ Fork da InovacaoRD
+>
+> Fork de [fazer-ai/agents](https://github.com/fazer-ai/agents) (Apache 2.0) com marca própria.
+> Alterações em relação ao upstream, todas de branding/deploy:
+>
+> | O quê | Onde |
+> |---|---|
+> | Nome de exibição (**temporário**: "RD Agents") | `src/client/contexts/BrandingContext.tsx`, `public/index.html` |
+> | Logo e favicon próprios (wordmark placeholder gerado dos SVGs em `public/assets/src/`) | `public/assets/logo{,-light}.png`, `public/favicon-{dark,light}.png` |
+> | Bloco de suporte escondido (sem e-mail próprio ainda) | `src/client/lib/navigation.tsx` |
+> | Link do site removido; GitHub aponta para este fork | `src/client/lib/navigation.tsx` |
+> | Hub da fazer.ai desligado (sem banner nem check de versão) | `.env.example` → `FAZER_AI_HUB_URL=` |
+> | Aviso de modificação (Apache 2.0 §4b) | `NOTICE` |
+>
+> **Pendências antes de qualquer uso externo:**
+>
+> - [ ] Trocar o wordmark placeholder pela arte definitiva. Os PNGs saem dos SVGs em `public/assets/src/` — para regerar: `bun assets:logo`
+> - [ ] Definir o nome definitivo (`BrandingContext.tsx` + `public/index.html`, e o texto dos SVGs)
+> - [ ] Definir e-mail de suporte e reativar `SUPPORT_LINK`
+> - [ ] Publicar a imagem Docker própria e apontar `AGENTS_IMAGE` para ela (o compose usa `ghcr.io/fazer-ai/agents` por padrão)
+>
+> Sincronizar com o upstream: `git fetch upstream && git rebase upstream/main`.
+> O *white-label* pelo painel (logo/cores por tenant) e o multi-tenant continuam
+> exclusivos da edição Pro da fazer.ai e **não** estão neste código.
+
+---
+
 **fazer.ai agents** transforma o WhatsApp num canal de atendimento com IA de verdade. Os agentes rodam sobre o seu Chatwoot e atendem com cara de gente: transcrevem áudios, leem imagens, respondem por texto ou por voz, consultam a base de conhecimento, agendam, orçam, movem o funil e passam para o time humano na hora certa. Tudo na sua própria infraestrutura.
 
 ### Destaques

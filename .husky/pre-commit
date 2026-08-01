@@ -6,6 +6,8 @@ bun check
 # Hermes CRITICAL finding (1 critical = "dangerous" verdict → the Hermes scanner refuses to install
 # the skill by every path, and --force does not cover it). Catch it here, not after the push in CI.
 # See tooling/skills/scan-criticals.mjs.
+# NOTE: tooling/skills só existe na edição Pro; na Free (este fork) o gate não se aplica.
+[ -d tooling/skills ] || exit 0
 cd tooling/skills
 npm run build >/dev/null
 node scan-criticals.mjs

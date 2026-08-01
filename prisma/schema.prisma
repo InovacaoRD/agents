@@ -376,6 +376,16 @@ model Contact {
   // text, null = unknown (falls back to mirroring what the customer sent). Set by the agent's
   // set_voice_preference native tool. RLS-scoped column — NOT a Chatwoot custom attribute.
   voiceReply        Boolean? @map("voice_reply")
+  // Access control (agents whose settings.accessControl.enabled is true): the contact's role, or
+  // null = NOT authorized. Fail-closed by design — an unknown contact is never answered. Checked in
+  // the webhook gate BEFORE the model runs, so authorization never depends on an LLM decision.
+  // Roles are opaque strings here; the meaning ("loja", "master", …) lives with the operator.
+  supportRole       String?  @map("support_role")
+  // Unidade/filial a que o contato pertence, cadastrada pelo operador. Exposta ao agente como
+  // {{loja_contato}} e às ferramentas HTTP como {{contact_branch}}, para que um campo que identifica
+  // ORIGEM (a loja de um chamado) venha do cadastro em vez de ser preenchido pelo modelo a partir do
+  // que a pessoa disse — o mesmo motivo pelo qual o telefone do solicitante é fixo.
+  branch            String?
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -411,6 +421,10 @@ model Conversation {
   // (responded to or deliberately skipped). The flush re-fetches and answers only ids beyond it,
   // so re-arm / retry / a concurrent claim cannot produce a duplicate reply. NULL = nothing handled.
   lastHandledMessageId   Int?      @map("last_handled_message_id")
+  // Link assinado do último anexo enviado ao armazenamento externo. Exposto às ferramentas como
+  // {{last_attachment_url}} (campo FIXO): permite anexar a imagem a um chamado sem que o modelo
+  // precise — ou consiga — inventar a URL. Expira junto com a assinatura.
+  lastAttachmentUrl      String?   @map("last_attachment_url")
   // Timestamp of the last INCOMING customer message — the WhatsApp 24h service-window anchor. A
   // proactive (follow-up/nudge) free-form send is only allowed within the window; outside it, an
   // approved template (HSM) is required. NULL = no inbound seen yet.

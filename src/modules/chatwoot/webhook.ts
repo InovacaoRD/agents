@@ -17,6 +17,11 @@ import { ingestMessageIntoThread } from "@/graph/ingest";
 import { runAgentTurn } from "@/graph/runtime";
 import { AppError, UnauthorizedError } from "@/lib/errors";
 import { asSuperAdminOn, runScopedOn, type TenantContext } from "@/lib/tenancy";
+import {
+  canonicalPhone,
+  contactAccessAllowed,
+  readAccessControlConfig,
+} from "@/modules/access-control/settings";
 import { shouldRunReset } from "@/modules/agents/test-mode";
 import {
   isOpenAt,
@@ -134,6 +139,53 @@ async function inboxAgentRuntime(
       mode: agent.mode,
       settings: agent.settings,
     };
+  });
+}
+
+// Access-control lookup: is this Chatwoot contact authorized for an access-controlled agent?
+// Reads `Contact.supportRole` from OUR RLS-scoped row — a contact cannot claim a role through the
+// webhook payload. A contact we have never mirrored (or one with no role) is refused, so the gate is
+// fail-closed both for unknown people and for a mirror that has not caught up yet.
+async function contactAuthorized(
+  tenantId: bigint,
+  chatwootContactId: number | null,
+  base: PrismaClient,
+): Promise<boolean> {
+  if (chatwootContactId == null) return false;
+  return runScopedOn(base, sysCtx(tenantId), async (db) => {
+    const contact = await db.contact.findUnique({
+      where: {
+        tenantId_chatwootContactId: { tenantId, chatwootContactId },
+      },
+      select: { supportRole: true, phone: true },
+    });
+    if (
+      contactAccessAllowed(
+        { enabled: true, refusalNote: "" },
+        contact?.supportRole ?? null,
+      )
+    )
+      return true;
+
+    // Sem papel nesta linha: o MESMO número pode existir noutro contato, autorizado, em outro
+    // formato — o WhatsApp entrega ora com, ora sem o nono dígito, e o Chatwoot cria contatos
+    // distintos. Reconhecer isso evita recusar quem já foi autorizado. Consulta só quando a
+    // primeira falha, e restrita ao sufixo, para não varrer a tabela a cada mensagem.
+    const alvo = canonicalPhone(contact?.phone);
+    if (alvo.length < 8) return false;
+    const irmaos = await db.contact.findMany({
+      where: {
+        supportRole: { not: null },
+        phone: { contains: alvo.slice(-8) },
+      },
+      select: { phone: true, supportRole: true },
+      take: 20,
+    });
+    return irmaos.some(
+      (c) =>
+        canonicalPhone(c.phone) === alvo &&
+        contactAccessAllowed({ enabled: true, refusalNote: "" }, c.supportRole),
+    );
   });
 }
 
@@ -318,6 +370,9 @@ export async function runEagerMedia(
   instanceId: bigint,
   n: NormalizedChatwootEvent,
   base: PrismaClient,
+  // Settings do agente do inbox (quando já resolvidas pelo chamador): decidem se o anexo vai para o
+  // armazenamento externo. Ausentes ⇒ não armazena.
+  agentSettings?: unknown,
 ): Promise<void> {
   if (
     n.conversationId === null ||
@@ -392,6 +447,8 @@ export async function runEagerMedia(
           attachmentId: visual.id,
           dataUrl: visual.dataUrl,
           cfg: visionCfg,
+          // O agente do inbox decide se o anexo vai para o armazenamento externo.
+          agentSettings,
           base,
           flow: flow(),
         });
@@ -399,6 +456,26 @@ export async function runEagerMedia(
           if (extracted.kind === "image")
             n.message.imageDescription = extracted.text;
           else n.message.extractedText = extracted.text;
+          // Guarda o link do anexo na conversa para as ferramentas: abrir chamado costuma acontecer
+          // algumas mensagens depois da foto chegar, então passar adiante no turno não bastaria.
+          if (extracted.attachmentUrl && n.conversationId !== null) {
+            const url = extracted.attachmentUrl;
+            const convId = n.conversationId;
+            try {
+              await runScopedOn(base, sysCtx(tenantId), (db) =>
+                db.conversation.updateMany({
+                  where: { tenantId, chatwootConversationId: convId },
+                  data: { lastAttachmentUrl: url },
+                }),
+              );
+            } catch (err) {
+              logger.warn(
+                "storage: nao foi possivel guardar o link do anexo (conv=%s): %s",
+                convLabel,
+                errMsg(err),
+              );
+            }
+          }
         }
       }
     } catch (err) {
@@ -1018,7 +1095,7 @@ export async function processChatwootDelivery(
   }
 
   // Gate, then the agent runtime — all network OUTSIDE the transaction.
-  const act = shouldBotHandle(
+  const attributionOk = shouldBotHandle(
     {
       assigneeType: n.assigneeType,
       status: n.status,
@@ -1026,7 +1103,24 @@ export async function processChatwootDelivery(
     },
     { ourAgentBotId: params.agentBotId },
   );
+
+  // Access control (opt-in per agent): an internal agent (IT support) answers ONLY contacts an
+  // operator authorized, while a customer-facing one answers anyone. FAIL-CLOSED and evaluated HERE,
+  // before the runtime — an unauthorized contact never reaches the model, so authorization can never
+  // be talked around in a prompt. The role is read from OUR row (RLS-scoped), never from the payload.
+  const accessCfg = readAccessControlConfig(rt?.settings);
+  const accessOk =
+    !accessCfg.enabled ||
+    (await contactAuthorized(params.tenantId, n.contact?.id ?? null, base));
+  const act = attributionOk && accessOk;
   const convLabel = n.conversationId === null ? "?" : String(n.conversationId);
+
+  if (attributionOk && !accessOk) {
+    logger.info(
+      "chatwoot: contact not authorized for agent (conv=%s); staying silent",
+      convLabel,
+    );
+  }
 
   // ── WhatsApp→chat redirect: the WIDGET conversation this agent manages just transitioned TO resolved
   //    (by anyone — the agent's own resolve tool, an operator in our console, or a human resolving
@@ -1107,7 +1201,13 @@ export async function processChatwootDelivery(
   // on the answer path (below); a disabled/unbound inbox never analyzes (no STT/vision cost). The
   // call is idempotent, so the answer-path call below is a no-op when this already ran. Best-effort.
   if (isNewIncoming && rt?.enabled && rt.mode === "production") {
-    await runEagerMedia(params.tenantId, params.instanceId, n, base);
+    await runEagerMedia(
+      params.tenantId,
+      params.instanceId,
+      n,
+      base,
+      rt.settings,
+    );
   }
 
   // First-class on-reply reset: a new customer message makes any pending inactivity follow-up moot.
@@ -1153,7 +1253,13 @@ export async function processChatwootDelivery(
       // empty audio/image message. For a production agent this already ran before the gate; the call
       // is idempotent, so here it only does real work for a test-mode agent that just passed the gate
       // (activated with /teste). Best-effort — a failure leaves a "please send text" marker.
-      await runEagerMedia(params.tenantId, params.instanceId, n, base);
+      await runEagerMedia(
+        params.tenantId,
+        params.instanceId,
+        n,
+        base,
+        rt?.settings,
+      );
 
       // Debounce path: an incoming message on a debounce-enabled agent re-arms the durable DEBOUNCE
       // job (coalescing window) instead of replying balloon-by-balloon. The fast worker flushes it

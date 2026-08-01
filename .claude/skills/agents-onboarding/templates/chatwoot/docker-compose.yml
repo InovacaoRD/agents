@@ -123,7 +123,12 @@ services:
       REDIS_PASSWORD: '${REDIS_PASSWORD}'
       LOG_LEVEL: '${BAILEYS_API_LOG_LEVEL:-info}'
       BAILEYS_PROVIDER_DEFAULT_API_KEY: '${BAILEYS_DEFAULT_API_KEY}'
-    command: ['sh', '-c', 'bun manage-api-keys create user $${BAILEYS_DEFAULT_API_KEY} && bun start']
+    # NOTE: use BAILEYS_PROVIDER_DEFAULT_API_KEY (the var this container actually receives), NOT
+    # BAILEYS_DEFAULT_API_KEY — that one exists only in the .env, never inside the container, so it
+    # expands to EMPTY here and `manage-api-keys create` mints a RANDOM key. Chatwoot then sends the
+    # key from the .env, the two never match, and every WhatsApp call fails with 401 on /status/auth
+    # (the inbox is unusable and the error gives no hint of the mismatch).
+    command: ['sh', '-c', 'bun manage-api-keys create user $${BAILEYS_PROVIDER_DEFAULT_API_KEY} && bun start']
     depends_on:
       redis: { condition: service_healthy }
     restart: always

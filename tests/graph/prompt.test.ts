@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { buildPromptVars, interpolatePromptVars } from "@/graph/prompt";
+import {
+  buildPromptVars,
+  interpolatePromptVars,
+  isKnownPromptVar,
+} from "@/graph/prompt";
 
 describe("interpolatePromptVars — {{ }} syntax", () => {
   const vars = buildPromptVars({
@@ -100,6 +104,49 @@ describe("interpolatePromptVars — wrap (preview highlight)", () => {
   test("leaves an unknown placeholder untouched (never wrapped)", () => {
     expect(interpolatePromptVars("{{desconhecida}}", vars, opts)).toBe(
       "{{desconhecida}}",
+    );
+  });
+});
+
+describe("contactBranch — unidade cadastrada do contato", () => {
+  test("exposta nos aliases pt-BR e no nome canônico", () => {
+    const vars = buildPromptVars({ contactBranch: "RO011" });
+    expect(interpolatePromptVars("{{loja_contato}}", vars)).toBe("RO011");
+    expect(interpolatePromptVars("{{filial_contato}}", vars)).toBe("RO011");
+    expect(interpolatePromptVars("{{contact_branch}}", vars)).toBe("RO011");
+  });
+
+  test("vazia quando não cadastrada — o agente então pergunta", () => {
+    const vars = buildPromptVars({ contactName: "Maria" });
+    expect(interpolatePromptVars("[{{loja_contato}}]", vars)).toBe("[]");
+  });
+
+  test("é reconhecida pelo editor (não marcada como typo)", () => {
+    expect(isKnownPromptVar("loja_contato")).toBe(true);
+    expect(isKnownPromptVar("filial_contato")).toBe(true);
+    expect(isKnownPromptVar("contact_branch")).toBe(true);
+    expect(isKnownPromptVar("loja_do_contato")).toBe(false);
+  });
+});
+
+describe("nome que na verdade é um telefone", () => {
+  // O Chatwoot nomeia o contato novo com o próprio número; sem isso o agente cumprimentaria
+  // a pessoa pelo telefone dela.
+  test("número puro não vira nome", () => {
+    for (const v of ["556992080259", "+55 69 99208-0259", "(69) 99208-0259"]) {
+      const vars = buildPromptVars({ contactName: v });
+      expect(vars.nome_contato).toBe("");
+      expect(vars.primeiro_nome).toBe("");
+    }
+  });
+
+  test("nome de verdade continua passando, inclusive com número junto", () => {
+    expect(
+      buildPromptVars({ contactName: "Tiago Menezes" }).primeiro_nome,
+    ).toBe("Tiago");
+    // Um nome com dígito é raro mas real ("Loja 11 - Ana"); só descartamos o que NÃO tem letra.
+    expect(buildPromptVars({ contactName: "Ana Loja 11" }).primeiro_nome).toBe(
+      "Ana",
     );
   });
 });
