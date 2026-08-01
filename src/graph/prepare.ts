@@ -92,6 +92,15 @@ import { UsageCapture, type UsagePersist, type UsageSource } from "./usage";
 // tool/client/MCP I/O happens OUTSIDE the tx. Keeping this in one place means the two paths build
 // identical models, tools, cost capture, and tracing.
 
+// Drops empty/absent entries so an optional field never reaches a tool as "undefined".
+function compact(
+  o: Record<string, string | null | undefined>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(o)) if (v) out[k] = v;
+  return out;
+}
+
 function sysCtx(tenantId: bigint): TenantContext {
   return { tenantId, userId: null, role: "TENANT_ADMIN" };
 }
@@ -464,26 +473,29 @@ export async function loadAgentConfig(
     handoffConfig: readHandoffConfig(effSettings),
     kanbanConfig: readKanbanConfig(effSettings),
     toolGuidance: readToolGuidance(effSettings),
-    httpToolContext: {
-      ...(conv?.contact?.chatwootContactId != null
-        ? { contact_id: String(conv.contact.chatwootContactId) }
-        : {}),
-      ...(conv?.contact?.name ? { contact_name: conv.contact.name } : {}),
-      ...(conv?.contact?.email ? { contact_email: conv.contact.email } : {}),
-      ...(conv?.contact?.phone ? { contact_phone: conv.contact.phone } : {}),
+    // Built as one literal then compacted, NOT as a stack of conditional spreads: past ~8 spreads
+    // the checker gives up inferring the union (TS2589) and the result stops matching
+    // Record<string, string>.
+    httpToolContext: compact({
+      contact_id:
+        conv?.contact?.chatwootContactId != null
+          ? String(conv.contact.chatwootContactId)
+          : undefined,
+      contact_name: conv?.contact?.name,
+      contact_email: conv?.contact?.email,
+      contact_phone: conv?.contact?.phone,
       // Unidade cadastrada do contato: permite que uma ferramenta preencha a loja de um chamado a
       // partir do cadastro (campo fixo) em vez de confiar no que o modelo entendeu da conversa.
-      ...(conv?.contact?.branch ? { contact_branch: conv.contact.branch } : {}),
-      ...(conv?.contact?.position
-        ? { contact_position: conv.contact.position }
-        : {}),
-      ...(conv?.inbox?.chatwootInboxId != null
-        ? { inbox_id: String(conv.inbox.chatwootInboxId) }
-        : {}),
-      ...(conv?.inbox?.name ? { inbox_name: conv.inbox.name } : {}),
-      ...(tenant?.name ? { company_name: tenant.name } : {}),
+      contact_branch: conv?.contact?.branch,
+      contact_position: conv?.contact?.position,
+      inbox_id:
+        conv?.inbox?.chatwootInboxId != null
+          ? String(conv.inbox.chatwootInboxId)
+          : undefined,
+      inbox_name: conv?.inbox?.name,
+      company_name: tenant?.name,
       agent_name: agent.name,
-    },
+    }),
     contactName: conv?.contact?.name ?? null,
     timezone,
     maxToolCalls: readLimitsConfig(effSettings).maxToolCalls,

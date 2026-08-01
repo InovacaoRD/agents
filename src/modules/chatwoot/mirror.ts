@@ -227,6 +227,36 @@ export async function mirrorChatwootEvent(
   });
 }
 
+// The Chatwoot contact screen IS the cadastro: the operator fills `papel` (which grants access),
+// `loja` and `cargo` there, and we mirror them here so there is no second list of people to keep in
+// sync. Only an agent logged into Chatwoot can edit these — a contact cannot set its own — and the
+// webhook is HMAC-authenticated, so this is equivalent to a login-protected screen of our own.
+//
+// Returns undefined when the delivery carried NO attributes object, meaning "nothing to say about
+// the cadastro" — the caller then leaves the stored values untouched. Only a delivery that does
+// carry the object may clear a field, which is how access is revoked (blank the field in Chatwoot).
+export function cadastroFromAttributes(
+  attrs: Record<string, unknown> | undefined,
+):
+  | {
+      supportRole: string | null;
+      branch: string | null;
+      position: string | null;
+    }
+  | undefined {
+  if (!attrs) return undefined;
+  const read = (k: string): string | null => {
+    const v = attrs[k];
+    if (typeof v !== "string" && typeof v !== "number") return null;
+    return String(v).trim().slice(0, 120) || null;
+  };
+  return {
+    supportRole: read("papel"),
+    branch: read("loja"),
+    position: read("cargo"),
+  };
+}
+
 async function upsertContact(
   db: ScopedDb,
   tenantId: bigint,
@@ -237,6 +267,7 @@ async function upsertContact(
   const attributes = (
     c.identifier ? { identifier: c.identifier } : {}
   ) as Prisma.InputJsonValue;
+  const cadastro = cadastroFromAttributes(c.customAttributes);
   const row = await db.contact.upsert({
     where: {
       tenantId_chatwootContactId: { tenantId, chatwootContactId: c.id },
@@ -248,11 +279,13 @@ async function upsertContact(
       email: c.email,
       phone: c.phone,
       attributes,
+      ...(cadastro ?? {}),
     },
     update: {
       ...(c.name != null ? { name: c.name } : {}),
       ...(c.email != null ? { email: c.email } : {}),
       ...(c.phone != null ? { phone: c.phone } : {}),
+      ...(cadastro ?? {}),
     },
     select: { id: true },
   });
