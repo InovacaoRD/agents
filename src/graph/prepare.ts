@@ -318,6 +318,7 @@ export async function loadAgentConfig(
     select: {
       id: true,
       contactInboxId: true,
+      lastAttachmentUrl: true,
       contact: {
         select: {
           id: true,
