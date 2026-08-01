@@ -553,6 +553,17 @@ export class ChatwootClient {
     );
   }
 
+  // Contact display name (admin token). Separate from custom attributes: `name` is a native Chatwoot
+  // column, so it does NOT go through the custom_attributes hash.
+  setContactName(contactId: number, name: string): Promise<unknown> {
+    return this.request(
+      this.config.adminToken,
+      "PUT",
+      `/contacts/${contactId}`,
+      { name },
+    );
+  }
+
   // Typing indicator for the split/humanized delivery. `toggle_typing_status` IS in the fork's
   // BOT_ACCESSIBLE_ENDPOINTS (confirmed against access_token_auth_helper.rb), so we use the bot
   // token — the indicator is then attributed to our bot, not to the admin agent. Best-effort (the
