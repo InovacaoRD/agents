@@ -43,6 +43,24 @@ export function readAccessControlConfig(
   };
 }
 
+// Canonical form of a Brazilian phone number, for COMPARISON only: digits, no 55 country code and
+// no mobile ninth digit (the "9" right after the area code).
+//
+// It exists because the same number arrives in different shapes: the roster may hold
+// +5569992080259 while WhatsApp delivers +556992080259. Chatwoot treats those as two contacts, so
+// the second one is born with no role and the gate — correctly fail-closed — would refuse an
+// already-authorized person. Comparing canonical forms recognizes it is the same human.
+//
+// Dropping the ninth digit also collapses an old landline (69 9208-0259) onto the equivalent
+// mobile. That is acceptable HERE: the goal is to re-find a contact that is ALREADY authorized,
+// never to grant access — someone with no role anywhere stays refused.
+export function canonicalPhone(v: string | null | undefined): string {
+  let d = (v ?? "").replace(/\D/g, "");
+  if (d.length > 11 && d.startsWith("55")) d = d.slice(2);
+  if (d.length === 11 && d[2] === "9") d = d.slice(0, 2) + d.slice(3);
+  return d;
+}
+
 // The authorization decision itself: pure, so it is trivially testable and has no way to "ask" a
 // model. `supportRole` comes from the DB row (RLS-scoped), never from the webhook payload — a caller
 // cannot claim a role by crafting a message.

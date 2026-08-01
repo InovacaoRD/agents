@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   ACCESS_CONTROL_DEFAULTS,
+  canonicalPhone,
   contactAccessAllowed,
   readAccessControlConfig,
 } from "@/modules/access-control/settings";
@@ -59,5 +60,42 @@ describe("contactAccessAllowed", () => {
   test("enabled ⇒ any non-empty role authorizes", () => {
     expect(contactAccessAllowed(on, "loja")).toBe(true);
     expect(contactAccessAllowed(on, "master")).toBe(true);
+  });
+});
+
+describe("canonicalPhone", () => {
+  test("colapsa DDI e nono dígito no mesmo número", () => {
+    // O caso real: o cadastro tem o nono dígito, o WhatsApp entregou sem ele.
+    const comNove = canonicalPhone("+5569992080259");
+    const semNove = canonicalPhone("+556992080259");
+    expect(comNove).toBe(semNove);
+    expect(comNove).toBe("6992080259");
+  });
+
+  test("aceita qualquer formatação", () => {
+    const esperado = canonicalPhone("+5569992080259");
+    for (const v of [
+      "(69) 99208-0259",
+      "69 99208-0259",
+      "5569992080259",
+      "69992080259",
+    ]) {
+      expect(canonicalPhone(v)).toBe(esperado);
+    }
+  });
+
+  test("números diferentes continuam diferentes", () => {
+    expect(canonicalPhone("+5569992080259")).not.toBe(
+      canonicalPhone("+5569992080258"),
+    );
+    expect(canonicalPhone("+5569992080259")).not.toBe(
+      canonicalPhone("+5511992080259"),
+    );
+  });
+
+  test("vazio/nulo não vira chave que casa com tudo", () => {
+    expect(canonicalPhone(null)).toBe("");
+    expect(canonicalPhone("")).toBe("");
+    expect(canonicalPhone("abc")).toBe("");
   });
 });

@@ -18,6 +18,7 @@ import { runAgentTurn } from "@/graph/runtime";
 import { AppError, UnauthorizedError } from "@/lib/errors";
 import { asSuperAdminOn, runScopedOn, type TenantContext } from "@/lib/tenancy";
 import {
+  canonicalPhone,
   contactAccessAllowed,
   readAccessControlConfig,
 } from "@/modules/access-control/settings";
@@ -156,11 +157,34 @@ async function contactAuthorized(
       where: {
         tenantId_chatwootContactId: { tenantId, chatwootContactId },
       },
-      select: { supportRole: true },
+      select: { supportRole: true, phone: true },
     });
-    return contactAccessAllowed(
-      { enabled: true, refusalNote: "" },
-      contact?.supportRole ?? null,
+    if (
+      contactAccessAllowed(
+        { enabled: true, refusalNote: "" },
+        contact?.supportRole ?? null,
+      )
+    )
+      return true;
+
+    // Sem papel nesta linha: o MESMO número pode existir noutro contato, autorizado, em outro
+    // formato — o WhatsApp entrega ora com, ora sem o nono dígito, e o Chatwoot cria contatos
+    // distintos. Reconhecer isso evita recusar quem já foi autorizado. Consulta só quando a
+    // primeira falha, e restrita ao sufixo, para não varrer a tabela a cada mensagem.
+    const alvo = canonicalPhone(contact?.phone);
+    if (alvo.length < 8) return false;
+    const irmaos = await db.contact.findMany({
+      where: {
+        supportRole: { not: null },
+        phone: { contains: alvo.slice(-8) },
+      },
+      select: { phone: true, supportRole: true },
+      take: 20,
+    });
+    return irmaos.some(
+      (c) =>
+        canonicalPhone(c.phone) === alvo &&
+        contactAccessAllowed({ enabled: true, refusalNote: "" }, c.supportRole),
     );
   });
 }
