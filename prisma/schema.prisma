@@ -381,6 +381,11 @@ model Contact {
   // the webhook gate BEFORE the model runs, so authorization never depends on an LLM decision.
   // Roles are opaque strings here; the meaning ("loja", "master", …) lives with the operator.
   supportRole       String?  @map("support_role")
+  // Unidade/filial a que o contato pertence, cadastrada pelo operador. Exposta ao agente como
+  // {{loja_contato}} e às ferramentas HTTP como {{contact_branch}}, para que um campo que identifica
+  // ORIGEM (a loja de um chamado) venha do cadastro em vez de ser preenchido pelo modelo a partir do
+  // que a pessoa disse — o mesmo motivo pelo qual o telefone do solicitante é fixo.
+  branch            String?
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
