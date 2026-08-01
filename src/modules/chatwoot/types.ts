@@ -82,6 +82,11 @@ export interface NormalizedChatwootContact {
   email: string | null;
   phone: string | null;
   identifier: string | null;
+  // Chatwoot's per-contact custom attributes (Contact#push_event_data ships them on every event).
+  // The operator maintains papel/loja/cargo on the Chatwoot contact screen and we mirror them —
+  // that screen is the cadastro, so there is no second list of people to keep in sync.
+  // `undefined` = the delivery carried no attributes at all, which must NOT be read as "cleared".
+  customAttributes?: Record<string, unknown>;
 }
 
 export interface NormalizedChatwootEvent {

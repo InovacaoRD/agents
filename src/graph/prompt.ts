@@ -36,6 +36,8 @@ export interface PromptVarContext {
   // Unidade/filial do contato (Contact.branch). Vazio quando não cadastrada — o agente então
   // pergunta, como faria de qualquer forma.
   contactBranch?: string | null;
+  // Cargo do contato (Contact.position). Informativo: NUNCA base para decisão de acesso.
+  contactPosition?: string | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
   inboxName?: string | null;
@@ -72,6 +74,7 @@ export function buildPromptVars(ctx: PromptVarContext): Record<string, string> {
   const email = sanitizeValue(ctx.contactEmail);
   const phone = sanitizeValue(ctx.contactPhone);
   const branch = sanitizeValue(ctx.contactBranch);
+  const position = sanitizeValue(ctx.contactPosition);
   const inbox = sanitizeValue(ctx.inboxName);
   const company = sanitizeValue(ctx.companyName);
   const agent = sanitizeValue(ctx.agentName);
@@ -87,6 +90,8 @@ export function buildPromptVars(ctx: PromptVarContext): Record<string, string> {
     contact_branch: branch,
     loja_contato: branch,
     filial_contato: branch,
+    contact_position: position,
+    cargo_contato: position,
     inbox_name: inbox,
     canal: inbox,
     company_name: company,
@@ -191,6 +196,7 @@ export const PROMPT_CONTEXT_VARS = [
   "email_contato",
   "telefone_contato",
   "loja_contato",
+  "cargo_contato",
   "canal",
 ];
 

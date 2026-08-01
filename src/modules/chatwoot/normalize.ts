@@ -101,6 +101,11 @@ export function normalizeChatwootEvent(
       email: str(sender.email),
       phone: str(sender.phone_number),
       identifier: str(sender.identifier),
+      // Left undefined when the delivery has no attributes object: absent is not the same as empty,
+      // and treating it as empty would revoke everyone's access on a single thin payload.
+      ...(isRecord(sender.custom_attributes)
+        ? { customAttributes: sender.custom_attributes }
+        : {}),
     };
   }
   // Inbox name only ships on message events (Message#webhook_data → inbox: {id, name}).
