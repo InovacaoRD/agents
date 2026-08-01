@@ -101,6 +101,22 @@ A edição **Pro** do fazer.ai agents (`edition: "pro"`, marcador) usa imagem pr
 
 `chatwootTier: "community"` (OSS) usa a imagem pública `ghcr.io/fazer-ai/chatwoot` (nosso fork), **sem** `docker login` no Harbor. O `baileys-api` **roda também no OSS** (imagem pública `ghcr.io/fazer-ai/baileys-api`, parte do fork — **não** remova). Só o `pro` faz `docker login` no Harbor + imagem privada `chatwoot-pro` (o que o Pro adiciona é o **Kanban**, não o Baileys). **Não** rode `docker login` nem provisione credencial do Harbor no caminho OSS (não há licença, e o pull público não precisa dela).
 
+### Baileys 401: a chave da API vive em DUAS variáveis parecidas
+
+No `templates/chatwoot/docker-compose.yml` (genérico) o container do `baileys-api` recebe
+`BAILEYS_PROVIDER_DEFAULT_API_KEY` — e **não** `BAILEYS_DEFAULT_API_KEY`, que existe só no `.env`.
+O `command` que registra a chave roda com `$${...}`, ou seja, é o **shell do container** que
+expande: usar ali o nome do `.env` resulta em string vazia, e o `manage-api-keys create` cunha uma
+chave **aleatória**. O Chatwoot então envia a chave do `.env`, as duas nunca batem, e toda chamada
+falha com **401 em `/status/auth`** — a inbox de WhatsApp fica inutilizável e a mensagem de erro
+não dá nenhuma pista do descasamento. O arquivo do **Coolify** não tem esse problema: lá a
+interpolação é `${...}` (um cifrão), feita pelo próprio compose, então o valor literal entra no
+comando.
+
+Sintoma: `POST /connections/... [200]` no Chatwoot, mas `Invalid API key attempted: <hash>` no log
+do `baileys-api`. Confirme com
+`docker exec <baileys> sh -c 'echo "[$BAILEYS_DEFAULT_API_KEY]"'` — se vier vazio, é isto.
+
 ## Langfuse
 
 ### One-click sem MinIO = traces somem em silêncio
