@@ -386,6 +386,11 @@ model Contact {
   // ORIGEM (a loja de um chamado) venha do cadastro em vez de ser preenchido pelo modelo a partir do
   // que a pessoa disse — o mesmo motivo pelo qual o telefone do solicitante é fixo.
   branch            String?
+  // Cargo/função do contato (gerente, assistente, farmacêutico, TI...). SEPARADO de supportRole:
+  // aquele é NÍVEL DE ACESSO (quem o agente atende e o que libera), este é QUEM a pessoa é —
+  // informativo, para o agente calibrar a linguagem e registrar melhor um chamado. Nunca use este
+  // campo para decidir autorização.
+  position          String?
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
