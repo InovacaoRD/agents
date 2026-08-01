@@ -421,6 +421,10 @@ model Conversation {
   // (responded to or deliberately skipped). The flush re-fetches and answers only ids beyond it,
   // so re-arm / retry / a concurrent claim cannot produce a duplicate reply. NULL = nothing handled.
   lastHandledMessageId   Int?      @map("last_handled_message_id")
+  // Link assinado do último anexo enviado ao armazenamento externo. Exposto às ferramentas como
+  // {{last_attachment_url}} (campo FIXO): permite anexar a imagem a um chamado sem que o modelo
+  // precise — ou consiga — inventar a URL. Expira junto com a assinatura.
+  lastAttachmentUrl      String?   @map("last_attachment_url")
   // Timestamp of the last INCOMING customer message — the WhatsApp 24h service-window anchor. A
   // proactive (follow-up/nudge) free-form send is only allowed within the window; outside it, an
   // approved template (HSM) is required. NULL = no inbound seen yet.

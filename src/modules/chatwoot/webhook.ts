@@ -427,6 +427,26 @@ export async function runEagerMedia(
           if (extracted.kind === "image")
             n.message.imageDescription = extracted.text;
           else n.message.extractedText = extracted.text;
+          // Guarda o link do anexo na conversa para as ferramentas: abrir chamado costuma acontecer
+          // algumas mensagens depois da foto chegar, então passar adiante no turno não bastaria.
+          if (extracted.attachmentUrl && n.conversationId !== null) {
+            const url = extracted.attachmentUrl;
+            const convId = n.conversationId;
+            try {
+              await runScopedOn(base, sysCtx(tenantId), (db) =>
+                db.conversation.updateMany({
+                  where: { tenantId, chatwootConversationId: convId },
+                  data: { lastAttachmentUrl: url },
+                }),
+              );
+            } catch (err) {
+              logger.warn(
+                "storage: nao foi possivel guardar o link do anexo (conv=%s): %s",
+                convLabel,
+                errMsg(err),
+              );
+            }
+          }
         }
       }
     } catch (err) {

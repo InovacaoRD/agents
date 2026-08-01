@@ -10,6 +10,8 @@ import {
   type FlowContext,
   withFlowStage,
 } from "@/modules/flowlog/service";
+import { attachmentKey, uploadAndSign } from "@/modules/storage/service";
+import { readStorageConfig } from "@/modules/storage/settings";
 import { tryResolveVaultEntry } from "@/modules/vault/service";
 import {
   getVisionProvider,
@@ -81,6 +83,10 @@ export interface ExtractInboundParams {
 export interface ExtractResult {
   kind: VisionKind;
   text: string;
+  // Link assinado do anexo, quando o armazenamento externo está configurado. Permite que um sistema
+  // de destino (um chamado de TI) receba a IMAGEM, não só a transcrição dela. null quando desligado
+  // ou quando o envio falhou — nunca impede a extração.
+  attachmentUrl?: string | null;
 }
 
 // The attachment-meta key the extracted content is written back under, per kind. The message parser
@@ -208,7 +214,34 @@ export async function extractInboundFile(
       e instanceof Error ? e.message : String(e),
     );
   }
-  return { kind, text };
+  // Anexo no armazenamento externo (opcional): dá ao destino — um chamado de TI, por exemplo — a
+  // IMAGEM em si, não só a transcrição. Roda DEPOIS da extração e do write-back porque é acessório:
+  // uma falha aqui não pode custar o que já foi extraído. Os bytes já estão em memória (baixados
+  // acima), então não há segundo download.
+  let attachmentUrl: string | null = null;
+  const storage = readStorageConfig(
+    await runScopedOn(base, sysCtx(params.tenantId), (db) =>
+      db.tenant.findFirst({ select: { settings: true } }),
+    ).then((t) => t?.settings),
+  );
+  if (storage.enabled) {
+    attachmentUrl = await uploadAndSign({
+      tenantId: params.tenantId,
+      cfg: storage,
+      key: attachmentKey(
+        params.tenantId,
+        params.conversationId,
+        params.messageId,
+        params.attachmentId,
+        (contentType ?? "").split("/")[1] ?? "bin",
+      ),
+      bytes,
+      contentType: contentType ?? "application/octet-stream",
+      base,
+    });
+  }
+
+  return { kind, text, attachmentUrl };
 }
 
 export interface PlaygroundExtractParams {
