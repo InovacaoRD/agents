@@ -58,9 +58,16 @@ function sanitizeValue(v: string | null | undefined): string {
   return out.replace(/\s+/g, " ").trim().slice(0, VALUE_MAX);
 }
 
+// A contact created from an inbound message has no name yet, so the channel fills it with the
+// phone number itself. Passing that through makes the agent greet someone as "Oi 556992080259".
+// An empty value is honest — the prompt can say "you don't know the name" — so treat it as absent.
+function nameOrEmpty(v: string): string {
+  return /\d/.test(v) && !/\p{L}/u.test(v) ? "" : v;
+}
+
 // Placeholder → value. English canonical names plus the common pt-BR aliases the audience writes.
 export function buildPromptVars(ctx: PromptVarContext): Record<string, string> {
-  const name = sanitizeValue(ctx.contactName);
+  const name = nameOrEmpty(sanitizeValue(ctx.contactName));
   const firstName = name.split(" ")[0] ?? "";
   const email = sanitizeValue(ctx.contactEmail);
   const phone = sanitizeValue(ctx.contactPhone);
