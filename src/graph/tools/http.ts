@@ -244,6 +244,35 @@ function interpolate(
   return template.replace(PLACEHOLDER, (_, name: string) => lookup(name) ?? "");
 }
 
+// Assigns a kv row into the payload, treating a dotted key as a PATH: "requester.name" becomes
+// { requester: { name } }. Many APIs require nested objects, and the alternative (a raw body
+// template) is unusable here — raw interpolation does not escape, so any quote or newline in a
+// model-written value would produce invalid JSON.
+//
+// A segment that collides with an existing non-object value is skipped rather than overwriting it:
+// silently dropping the earlier row would be worse than ignoring the malformed one.
+function setNested(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  const parts = key.split(".").filter(Boolean);
+  if (parts.length <= 1) {
+    target[key] = value;
+    return;
+  }
+  let node: Record<string, unknown> = target;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const seg = parts[i] as string;
+    const cur = node[seg];
+    if (cur === undefined) node[seg] = {};
+    else if (typeof cur !== "object" || cur === null || Array.isArray(cur))
+      return;
+    node = node[seg] as Record<string, unknown>;
+  }
+  node[parts[parts.length - 1] as string] = value;
+}
+
 function placeholderNames(template: string): Set<string> {
   const names = new Set<string>();
   for (const m of template.matchAll(PLACEHOLDER)) names.add(m[1] as string);
@@ -437,11 +466,11 @@ export function buildHttpTool(
             if (!k) continue;
             const ph = value.match(LONE_PLACEHOLDER)?.[1];
             if (ph && ph in input) {
-              if (input[ph] != null) payload[k] = input[ph];
+              if (input[ph] != null) setNested(payload, k, input[ph]);
             } else if (ph && isAiFieldName(ph)) {
               // known aiField the model omitted → omit the key
             } else {
-              payload[k] = interpolate(value, lookupWithSecret);
+              setNested(payload, k, interpolate(value, lookupWithSecret));
             }
           }
           body = JSON.stringify(payload);
