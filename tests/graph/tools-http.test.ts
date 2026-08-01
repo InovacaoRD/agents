@@ -816,3 +816,70 @@ describe("buildHttpTool — query params (any method)", () => {
     expect(new URL(captured.url as string).searchParams.get("foo")).toBe("X");
   });
 });
+
+describe("kv body: dotted keys build nested objects", () => {
+  // Many APIs require a nested object (OMNITask's ticket wants `requester: { name, phone }`). The
+  // alternative — a "raw" body template — is unusable when a value is written by the model: raw
+  // interpolation does not escape, so a quote or newline would produce invalid JSON.
+  async function sentBody(
+    rows: Array<{ key: string; value: string }>,
+    input: object,
+  ): Promise<Record<string, unknown>> {
+    const captured: Captured = {};
+    const tool = buildHttpTool(
+      def({
+        method: "POST",
+        urlTemplate: `https://${PUBLIC}/tickets`,
+        inputSchema: {
+          nome: { type: "string", required: true },
+          texto: { type: "string" },
+        },
+        body: { mode: "kv", rows },
+      }),
+      {
+        context: { contact_phone: "+5569999" },
+        resolveCredential: async () => null,
+        fetchImpl: stubFetch(captured),
+      },
+    );
+    await tool.invoke(input);
+    return JSON.parse(captured.init?.body as string) as Record<string, unknown>;
+  }
+
+  test("a dotted key nests; a plain key stays flat", async () => {
+    const body = await sentBody(
+      [
+        { key: "source", value: "whatsapp" },
+        { key: "requester.name", value: "{{nome}}" },
+        { key: "requester.phone", value: "{{contact_phone}}" },
+      ],
+      { nome: "Damaris" },
+    );
+    expect(body.source).toBe("whatsapp");
+    expect(body.requester).toEqual({ name: "Damaris", phone: "+5569999" });
+  });
+
+  test("a model-written value with quotes/newlines survives intact", async () => {
+    const body = await sentBody(
+      [{ key: "ticket.description", value: "{{texto}}" }],
+      {
+        nome: "n",
+        texto: 'linha 1\n"aspas" e \\barra',
+      },
+    );
+    expect((body.ticket as Record<string, string>).description).toBe(
+      'linha 1\n"aspas" e \\barra',
+    );
+  });
+
+  test("a segment colliding with a scalar is skipped, not overwritten", async () => {
+    const body = await sentBody(
+      [
+        { key: "requester", value: "texto" },
+        { key: "requester.name", value: "{{nome}}" },
+      ],
+      { nome: "x" },
+    );
+    expect(body.requester).toBe("texto");
+  });
+});
