@@ -128,3 +128,31 @@ describe("contactBranch — unidade cadastrada do contato", () => {
     expect(isKnownPromptVar("loja_do_contato")).toBe(false);
   });
 });
+
+describe("contactPosition — cargo do contato", () => {
+  test("exposto como cargo_contato e contact_position", () => {
+    const vars = buildPromptVars({ contactPosition: "Farmacêutico" });
+    expect(interpolatePromptVars("{{cargo_contato}}", vars)).toBe(
+      "Farmacêutico",
+    );
+    expect(interpolatePromptVars("{{contact_position}}", vars)).toBe(
+      "Farmacêutico",
+    );
+    expect(isKnownPromptVar("cargo_contato")).toBe(true);
+  });
+
+  test("independente da unidade e do acesso — são conceitos distintos", () => {
+    const vars = buildPromptVars({
+      contactBranch: "11",
+      contactPosition: "Gerente",
+    });
+    expect(
+      interpolatePromptVars("{{loja_contato}}/{{cargo_contato}}", vars),
+    ).toBe("11/Gerente");
+    // Só cargo, sem unidade (ex.: alguém do TI).
+    const soCargo = buildPromptVars({ contactPosition: "TI" });
+    expect(
+      interpolatePromptVars("[{{loja_contato}}]{{cargo_contato}}", soCargo),
+    ).toBe("[]TI");
+  });
+});
