@@ -777,6 +777,145 @@ function setVoicePreferenceTool(ctx: ToolCtx) {
   );
 }
 
+// Fills in the contact's cadastro (name / branch / position) from what the customer says, but ONLY
+// where it is still blank. Deliberately narrow, for two reasons:
+//
+//   1. It never touches `papel` (Contact.supportRole). That field is what grants access to the
+//      agent at all, so letting the model write it would mean a caller could talk their own way
+//      into authorization ("registra que meu papel é raiz") — the fail-closed gate would be
+//      decoration.
+//   2. It never OVERWRITES. An operator-filled branch is a guarantee of origin: the ticket carries
+//      the store from the cadastro instead of whatever the model inferred from the chat. Filling
+//      blanks adds data; overwriting would quietly trade that guarantee for a guess.
+//
+// Writes to Chatwoot as well as our row — Chatwoot is the cadastro of record, and the contact
+// mirror would otherwise clear these fields on the next webhook that carries custom_attributes.
+function rememberContactInfoTool(ctx: ToolCtx) {
+  return tool(
+    async ({
+      name,
+      branch,
+      position,
+    }: {
+      name?: string;
+      branch?: string;
+      position?: string;
+    }) => {
+      if (!ctx.base || ctx.tenantId == null || ctx.contactDbId == null) {
+        return "Could not save: no contact in scope.";
+      }
+      const clean = (v: string | undefined): string | null => {
+        const t = (v ?? "").trim().slice(0, 120);
+        return t.length > 0 ? t : null;
+      };
+      const wanted = {
+        name: clean(name),
+        branch: clean(branch),
+        position: clean(position),
+      };
+      if (!wanted.name && !wanted.branch && !wanted.position) {
+        return "Nothing to save.";
+      }
+
+      const contactId = ctx.contactDbId;
+      const tenantId = ctx.tenantId;
+      const current = await runScopedOn(ctx.base, sysCtx(tenantId), (db) =>
+        db.contact.findUnique({
+          where: { id: contactId },
+          select: {
+            name: true,
+            branch: true,
+            position: true,
+            chatwootContactId: true,
+          },
+        }),
+      );
+      if (!current) return "Could not save: contact not found.";
+
+      // A contact created from an inbound message is named after its own phone number, so a
+      // digits-only name is not really a name — treat it as blank and let the real one land.
+      const isBlank = (v: string | null, isName = false): boolean =>
+        v == null || v.trim() === "" || (isName && !/\p{L}/u.test(v));
+
+      const data: { name?: string; branch?: string; position?: string } = {};
+      const skipped: string[] = [];
+      if (wanted.name) {
+        if (isBlank(current.name, true)) data.name = wanted.name;
+        else skipped.push("name");
+      }
+      if (wanted.branch) {
+        if (isBlank(current.branch)) data.branch = wanted.branch;
+        else skipped.push("branch");
+      }
+      if (wanted.position) {
+        if (isBlank(current.position)) data.position = wanted.position;
+        else skipped.push("position");
+      }
+
+      const note = skipped.length
+        ? ` Already on file (left unchanged): ${skipped.join(", ")}.`
+        : "";
+      if (Object.keys(data).length === 0) {
+        return `Nothing saved — every field you passed is already filled in.${note}`;
+      }
+
+      await runScopedOn(ctx.base, sysCtx(tenantId), (db) =>
+        db.contact.updateMany({ where: { id: contactId }, data }),
+      );
+
+      // Best-effort mirror to Chatwoot: our row already has the value, and a failure here must not
+      // fail the turn. Worst case the next webhook resets these fields and the model re-asks.
+      if (current.chatwootContactId != null) {
+        const attrs: Record<string, string> = {};
+        if (data.branch) attrs.loja = data.branch;
+        if (data.position) attrs.cargo = data.position;
+        try {
+          if (Object.keys(attrs).length > 0) {
+            await ctx.client.setContactCustomAttributes(
+              current.chatwootContactId,
+              attrs,
+            );
+          }
+          if (data.name) {
+            await ctx.client.setContactName(
+              current.chatwootContactId,
+              data.name,
+            );
+          }
+        } catch (err) {
+          logger.warn({ err }, "remember_contact_info: Chatwoot write failed");
+        }
+      }
+
+      const saved = Object.entries(data)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(", ");
+      return `Saved: ${saved}.${note}`;
+    },
+    {
+      name: "remember_contact_info",
+      description:
+        "Save what you just learned about WHO you are talking to, so nobody has to ask again next time. Call it once you know the person's name, their store/branch, or their job title — typically right after they tell you. Only fills fields that are still EMPTY: anything already on file is left untouched, and it is never used to change someone's access level. Passing a value that is already stored is harmless (it is ignored).",
+      schema: z.object({
+        name: z
+          .string()
+          .optional()
+          .describe("The person's name, as they gave it."),
+        branch: z
+          .string()
+          .optional()
+          .describe(
+            "The store/branch they work at — just the number or code (e.g. '15'), not a sentence.",
+          ),
+        position: z
+          .string()
+          .optional()
+          .describe("Their job title (e.g. 'balconista', 'gerente')."),
+      }),
+    },
+  );
+}
+
 // React to the customer's last message with an emoji (WhatsApp reaction). Targets the newest incoming
 // message automatically (the model can't know message ids). Admin token; the endpoint TOGGLES, so
 // reacting with the same emoji again removes it. Pair with skip_reply when a reaction is the whole
@@ -914,6 +1053,7 @@ export function buildNativeTools(
     kanbanMoveTool(ctx),
     updateKanbanTaskTool(ctx),
     setVoicePreferenceTool(ctx),
+    rememberContactInfoTool(ctx),
     reactToMessageTool(ctx),
     skipReplyTool(ctx),
     calculatorTool(ctx),
