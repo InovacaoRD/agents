@@ -6,6 +6,9 @@ import {
   TTL_MAX_DAYS,
 } from "@/modules/storage/settings";
 
+// O agente é a segunda camada: sem opt-in dele, nada é armazenado.
+const AGENTE_QUER = { storage: { enabled: true } };
+
 describe("readStorageConfig", () => {
   const completo = {
     storage: {
@@ -18,23 +21,35 @@ describe("readStorageConfig", () => {
   };
 
   test("desligado por padrão", () => {
-    expect(readStorageConfig(undefined)).toEqual(STORAGE_DEFAULTS);
-    expect(readStorageConfig({})).toEqual(STORAGE_DEFAULTS);
+    expect(readStorageConfig(undefined, AGENTE_QUER)).toEqual(STORAGE_DEFAULTS);
+    expect(readStorageConfig({}, AGENTE_QUER)).toEqual(STORAGE_DEFAULTS);
     expect(STORAGE_DEFAULTS.enabled).toBe(false);
   });
 
-  test("lê a configuração completa", () => {
-    const c = readStorageConfig(completo);
+  test("lê a configuração completa quando o agente opta", () => {
+    const c = readStorageConfig(completo, AGENTE_QUER);
     expect(c.enabled).toBe(true);
     expect(c.bucket).toBe("rd-agents");
     expect(c.linkTtlDays).toBe(7);
+  });
+
+  test("infraestrutura pronta + agente SEM opt-in ⇒ não armazena", () => {
+    // O caso que motivou a separação: um agente de atendimento ao cliente recebe foto de laudo e
+    // não tem finalidade para o link — guardar seria retenção de dado sensível sem uso.
+    expect(readStorageConfig(completo).enabled).toBe(false);
+    expect(readStorageConfig(completo, {}).enabled).toBe(false);
+    expect(
+      readStorageConfig(completo, { storage: { enabled: false } }).enabled,
+    ).toBe(false);
+    // Ainda assim os dados de destino continuam legíveis (o tenant os guarda).
+    expect(readStorageConfig(completo, {}).bucket).toBe("rd-agents");
   });
 
   test("config pela metade NÃO fica ligada (falharia a cada anexo)", () => {
     for (const faltando of ["bucket", "endpoint", "credentialRef"] as const) {
       const storage: Record<string, unknown> = { ...completo.storage };
       delete storage[faltando];
-      expect(readStorageConfig({ storage }).enabled).toBe(false);
+      expect(readStorageConfig({ storage }, AGENTE_QUER).enabled).toBe(false);
     }
   });
 
