@@ -26,6 +26,8 @@ describe("parseChatwootMessages", () => {
       attachmentName: null,
       inReplyTo: null,
       isReaction: false,
+      senderType: null,
+      senderId: null,
     });
     expect(rows[1]?.messageType).toBe("outgoing");
   });
