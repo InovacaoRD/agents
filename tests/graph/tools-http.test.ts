@@ -883,3 +883,75 @@ describe("kv body: dotted keys build nested objects", () => {
     expect(body.requester).toBe("texto");
   });
 });
+
+describe("molde com alternativa: {{a|b}}", () => {
+  // Nasceu de um caso real: o campo da filial usava "{{contact_branch}}{{loja_informada}}" para
+  // dizer "o cadastro, ou o que a pessoa informou". Com os DOIS preenchidos isso concatenava
+  // (loja 9 + resposta 9 = "99") e a API recusava. Com só um deles, o outro caso quebrava.
+  function ferramenta(captured: Captured, contexto: Record<string, string>) {
+    return buildHttpTool(
+      def({
+        name: "abrir chamado",
+        method: "POST",
+        urlTemplate: `https://${PUBLIC}/tickets`,
+        inputSchema: {
+          assunto: { type: "string", required: true },
+          loja_informada: { type: "string" },
+        },
+        body: {
+          mode: "kv",
+          rows: [
+            { key: "subject", value: "{{assunto}}" },
+            { key: "branch", value: "{{contact_branch|loja_informada}}" },
+          ],
+        },
+      }),
+      {
+        resolveCredential: async () => "",
+        fetchImpl: stubFetch(captured),
+        context: contexto,
+      },
+    );
+  }
+
+  test("usa o cadastro quando ele existe", async () => {
+    const c: Captured = {};
+    await ferramenta(c, { contact_branch: "9" }).invoke({
+      assunto: "X",
+      loja_informada: "9",
+    });
+    // O ponto: "9", nunca "99".
+    expect(JSON.parse(c.init?.body as string).branch).toBe("9");
+  });
+
+  test("cai para o que a pessoa informou quando o cadastro está vazio", async () => {
+    // O caso da Werica: informou a loja na conversa, cadastro ainda sem loja naquele turno.
+    const c: Captured = {};
+    await ferramenta(c, { contact_branch: "" }).invoke({
+      assunto: "X",
+      loja_informada: "21",
+    });
+    expect(JSON.parse(c.init?.body as string).branch).toBe("21");
+  });
+
+  test("cadastro ausente e nada informado ⇒ vazio (o erro fica explícito)", async () => {
+    const c: Captured = {};
+    await ferramenta(c, {}).invoke({ assunto: "X" });
+    expect(JSON.parse(c.init?.body as string).branch).toBe("");
+  });
+
+  test("valor só com espaços não vence a alternativa", async () => {
+    const c: Captured = {};
+    await ferramenta(c, { contact_branch: "   " }).invoke({
+      assunto: "X",
+      loja_informada: "7",
+    });
+    expect(JSON.parse(c.init?.body as string).branch).toBe("7");
+  });
+
+  test("placeholder simples continua funcionando", async () => {
+    const c: Captured = {};
+    await ferramenta(c, { contact_branch: "3" }).invoke({ assunto: "TESTE" });
+    expect(JSON.parse(c.init?.body as string).subject).toBe("TESTE");
+  });
+});
