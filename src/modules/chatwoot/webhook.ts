@@ -55,6 +55,7 @@ import {
 } from "@/modules/vision/service";
 import { hashRouteToken } from "@/modules/webhooks/inbound/route-token";
 import { loadAgentBot, loadChatwootClient } from "./instance";
+import { parseChatwootMessages } from "./messages";
 import { mirrorChatwootEvent } from "./mirror";
 import {
   type ControlCommand,
@@ -140,6 +141,56 @@ async function inboxAgentRuntime(
       settings: agent.settings,
     };
   });
+}
+
+// Did a HUMAN already take this conversation over — outside the panel?
+//
+// The team answers straight from the WhatsApp app on the phone, not from Chatwoot: on this account
+// that is HALF of every reply sent (51 from the phone vs 55 from the bot, over 3 days). Chatwoot
+// records those as outgoing messages with NO sender (the panel would set sender_type "User"), and
+// `shouldBotHandle` only recognises a formal assignment — so the bot kept answering ON TOP of a
+// conversation a technician had already handled, re-asking what the person had just been told.
+//
+// So the rule is not "is someone assigned" but "was the last thing sent NOT ours": any outgoing
+// message that is not from our own agent bot means a person is on it, whether they typed in the
+// panel or on their phone. Private notes are ignored (an internal note is not an answer).
+//
+// This is scoped to ONE conversation, and conversations auto-resolve after a quiet period — so the
+// bot is back for the person's next conversation, memory intact (memory is keyed by contact, not
+// by conversation).
+async function humanTookOver(
+  tenantId: bigint,
+  instanceId: bigint,
+  conversationId: number,
+  ourAgentBotId: number | null,
+  base: PrismaClient,
+): Promise<boolean> {
+  try {
+    const client = await loadChatwootClient(tenantId, instanceId, { base });
+    const messages = parseChatwootMessages(
+      await client.getMessages(conversationId),
+    );
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (!m || m.private) continue;
+      // Only outgoing messages carry the answer; incoming is the customer, events are noise.
+      if (m.messageType !== "outgoing") continue;
+      const bot = m.senderType === "agent_bot";
+      const ours =
+        bot && (ourAgentBotId == null || m.senderId === ourAgentBotId);
+      return !ours;
+    }
+    return false;
+  } catch (err) {
+    // Fail OPEN on purpose: if we cannot read the history we must not silence the bot, or a Chatwoot
+    // hiccup turns into "the bot stopped answering" — the exact failure mode we are fixing here.
+    logger.warn(
+      "chatwoot: could not check for human takeover (conv=%s): %s",
+      conversationId,
+      err instanceof Error ? err.message : String(err),
+    );
+    return false;
+  }
 }
 
 // Access-control lookup: is this Chatwoot contact authorized for an access-controlled agent?
@@ -1112,7 +1163,25 @@ export async function processChatwootDelivery(
   const accessOk =
     !accessCfg.enabled ||
     (await contactAuthorized(params.tenantId, n.contact?.id ?? null, base));
-  const act = attributionOk && accessOk;
+
+  // A human may have taken this conversation over WITHOUT touching the panel — by answering from
+  // the WhatsApp app on their phone, which is how this team works in practice. `attributionOk` only
+  // sees formal assignment, so without this the bot answers on top of a technician who already
+  // handled it (and re-asks what the person was just told). Checked last: it costs a history fetch,
+  // so it only runs once the cheap gates have already said yes.
+  const humanOnIt =
+    attributionOk &&
+    accessOk &&
+    n.conversationId !== null &&
+    (await humanTookOver(
+      params.tenantId,
+      params.instanceId,
+      n.conversationId,
+      params.agentBotId,
+      base,
+    ));
+
+  const act = attributionOk && accessOk && !humanOnIt;
   const convLabel = n.conversationId === null ? "?" : String(n.conversationId);
 
   if (attributionOk && !accessOk) {

@@ -28,6 +28,13 @@ export interface ChatwootMessageRow {
   inReplyTo: number | null;
   // content_attributes.is_reaction — true when this message is an emoji reaction (content = emoji).
   isReaction: boolean;
+  // WHO sent it: "agent_bot" (a bot), "user" (someone in the panel), "contact" (the customer), or
+  // NULL when the reply was typed straight into the WhatsApp app on the phone — Chatwoot records
+  // those with no sender at all. That null is the signal a human took the conversation over outside
+  // the panel, which is how this team actually works. Normalized to lowercase (the payload uses
+  // "AgentBot"/"User" in some shapes and "agent_bot"/"user" in others).
+  senderType: string | null;
+  senderId: number | null;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -91,6 +98,26 @@ function attachmentTypesFrom(attachments: unknown): string[] {
   return out;
 }
 
+// The sender lives either in `sender` (object) or in the flat `sender_type`/`sender_id` pair,
+// depending on which Chatwoot shape produced the row. Absent in BOTH means the message was sent
+// straight from the WhatsApp app — no sender is recorded for those.
+function senderFrom(item: Record<string, unknown>): {
+  senderType: string | null;
+  senderId: number | null;
+} {
+  const sender = isRecord(item.sender) ? item.sender : null;
+  const rawType = sender?.type ?? item.sender_type;
+  const id = num(sender?.id ?? item.sender_id);
+  if (typeof rawType !== "string") return { senderType: null, senderId: id };
+  // "AgentBot" and "agent_bot" are the same thing in different payload shapes — lowercasing alone
+  // yields "agentbot", which would NOT match "agent_bot" and would make the bot fail to recognise
+  // its OWN message (reading it as a human takeover and silencing itself). Drop the underscores on
+  // both sides so the comparison is on letters only.
+  const flat = rawType.toLowerCase().replace(/_/g, "");
+  if (flat === "agentbot") return { senderType: "agent_bot", senderId: id };
+  return { senderType: rawType.toLowerCase(), senderId: id };
+}
+
 // Parses the raw response into normalized rows sorted by id ascending (Chatwoot ids are globally
 // increasing per account, so id order is chronological and drives the watermark comparison).
 export function parseChatwootMessages(raw: unknown): ChatwootMessageRow[] {
@@ -119,6 +146,7 @@ export function parseChatwootMessages(raw: unknown): ChatwootMessageRow[] {
       attachmentName: fileNameFrom(item.attachments),
       inReplyTo: ca ? num(ca.in_reply_to) : null,
       isReaction: ca?.is_reaction === true,
+      ...senderFrom(item),
     });
   }
   out.sort((a, b) => a.id - b.id);
