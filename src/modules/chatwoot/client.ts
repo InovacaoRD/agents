@@ -634,14 +634,15 @@ export class ChatwootClient {
   async downloadAttachment(
     dataUrl: string,
   ): Promise<{ bytes: ArrayBuffer; contentType: string | null }> {
-    await assertSafeOutboundUrl(dataUrl);
+    const target = this.attachmentUrlOnConfiguredHost(dataUrl);
+    await assertSafeOutboundUrl(target);
     let sameHost = false;
     try {
-      sameHost = new URL(dataUrl).host === new URL(this.config.baseUrl).host;
+      sameHost = new URL(target).host === new URL(this.config.baseUrl).host;
     } catch {
       throw new ChatwootApiError(400, "GET attachment");
     }
-    const res = await this.fetchImpl(dataUrl, {
+    const res = await this.fetchImpl(target, {
       method: "GET",
       headers: sameHost
         ? { [CHATWOOT_AUTH_HEADER]: this.config.adminToken }
@@ -654,7 +655,38 @@ export class ChatwootClient {
     if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
       throw new ChatwootApiError(413, "GET attachment");
     }
-    return { bytes, contentType: res.headers.get("content-type") };
+    // An access proxy in front of Chatwoot (Cloudflare Access, an SSO gateway) answers an
+    // unauthenticated request with 200 + its own login PAGE instead of an error. That sails past the
+    // res.ok check and reaches STT/vision as "audio"/"image", which then fail with an opaque 400.
+    // Refuse HTML outright: an attachment is never text/html, so this can only be an interstitial.
+    const contentType = res.headers.get("content-type");
+    if (contentType?.toLowerCase().includes("text/html")) {
+      throw new ChatwootApiError(502, "GET attachment (login page, not media)");
+    }
+    return { bytes, contentType };
+  }
+
+  // Chatwoot advertises attachments on its PUBLIC url (FRONTEND_URL), but we may reach the instance
+  // on a private address — and when the public host sits behind an access proxy, fetching there
+  // returns the proxy's login page, not the file. Rewrite same-path onto the host we are configured
+  // to talk to, which is the one our credentials work on. Only the origin is swapped: path, query
+  // and the signed blob token are preserved. Any OTHER host (S3/CDN) is left untouched.
+  private attachmentUrlOnConfiguredHost(dataUrl: string): string {
+    let url: URL;
+    let base: URL;
+    try {
+      url = new URL(dataUrl);
+      base = new URL(this.config.baseUrl);
+    } catch {
+      return dataUrl;
+    }
+    if (url.origin === base.origin) return dataUrl;
+    // Only rewrite what is unmistakably a Chatwoot-served attachment path; never a third-party CDN.
+    if (!url.pathname.startsWith("/rails/active_storage/")) return dataUrl;
+    url.protocol = base.protocol;
+    url.host = base.host;
+    url.port = base.port;
+    return url.toString();
   }
 
   // The account's display name (admin token). `GET /api/v1/accounts/:id` (the account-base root)
