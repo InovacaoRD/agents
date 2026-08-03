@@ -230,18 +230,40 @@ function parseQuery(raw: unknown): Record<string, string> {
   return out;
 }
 
-const PLACEHOLDER = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
+// `{{a}}` or `{{a|b|c}}` — the pipe form takes the FIRST name that resolves to a non-empty value.
+// Without it an operator wanting "the registered store, or what the person just told us" had to
+// write `{{contact_branch}}{{loja_informada}}`, which CONCATENATES when both are set (store 9 +
+// answer 9 → "99", rejected by the API). Writing only one of them breaks the other case. A fallback
+// is what was actually meant, so the template now says it.
+const PLACEHOLDER = /\{\{\s*([a-zA-Z0-9_]+(?:\s*\|\s*[a-zA-Z0-9_]+)*)\s*\}\}/g;
 // A value that is EXACTLY one placeholder (no surrounding text). Used by the kv body to keep an
 // AI-supplied value's original type instead of coercing it to a string.
-const LONE_PLACEHOLDER = /^\{\{\s*([a-zA-Z0-9_]+)\s*\}\}$/;
+const LONE_PLACEHOLDER =
+  /^\{\{\s*([a-zA-Z0-9_]+(?:\s*\|\s*[a-zA-Z0-9_]+)*)\s*\}\}$/;
 // The model-supplied (optional) holding message arg; consumed for the ack, NEVER sent in the request.
 const WAIT_MESSAGE_ARG = "__wait_message";
+
+// First non-empty among the alternatives. Whitespace-only counts as empty: a field the model left
+// blank must fall through to the next option, not win it.
+function resolveAlternatives(
+  names: string,
+  lookup: (name: string) => string | undefined,
+): string | undefined {
+  for (const raw of names.split("|")) {
+    const v = lookup(raw.trim());
+    if (typeof v === "string" && v.trim() !== "") return v;
+  }
+  return undefined;
+}
 
 function interpolate(
   template: string,
   lookup: (name: string) => string | undefined,
 ): string {
-  return template.replace(PLACEHOLDER, (_, name: string) => lookup(name) ?? "");
+  return template.replace(
+    PLACEHOLDER,
+    (_, names: string) => resolveAlternatives(names, lookup) ?? "",
+  );
 }
 
 // Assigns a kv row into the payload, treating a dotted key as a PATH: "requester.name" becomes
